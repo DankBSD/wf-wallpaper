@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<wayfire>
+	<object name="wallpaper">
+		<_short>Wallpaper</_short>
+		<category>Desktop</category>
+		<option name="outputs" type="string">
+			<_short>Outputs</_short>
+			<_long>Which display outputs this wallpaper should be on, comma-separated, * for all</_long>
+			<default>*</default>
+		</option>
+		<option name="workspaces" type="string">
+			<_short>Workspaces</_short>
+			<_long>Which workspaces this wallpaper should be on, comma-separated, * for all</_long>
+			<default>*</default>
+		</option>
+		<option name="color" type="color">
+			<_short>Color</_short>
+			<_long>Color to use when there is no working image</_long>
+			<default>0.1 0.1 0.1 1.0</default>
+		</option>
+		<option name="path" type="string">
+			<_short>Path</_short>
+			<_long>File/directory path for this wallpaper</_long>
+			<hint>file</hint>
+			<default></default>
+		</option>
+		<option name="interval" type="int">
+			<_short>Interval</_short>
+			<_long>If a directory is in the path, how many seconds each image from the directory stays on</_long>
+			<default>60</default>
+			<min>1</min>
+		</option>
+		<option name="speed" type="int">
+			<_short>Speed</_short>
+			<_long>If a directory is in the path, how many milliseconds the transition between images takes</_long>
+			<default>200</default>
+			<min>60</min>
+			<max>960</max>
+		</option>
+		<option name="sizing_mode" type="string">
+			<_short>Sizing mode</_short>
+			<_long>How to match the image to the screen</_long>
+			<default>fill</default>
+			<desc>
+				<value>fill</value>
+				<_name>Fill</_name>
+			</desc>
+			<desc>
+				<value>fit</value>
+				<_name>Fit</_name>
+			</desc>
+			<desc>
+				<value>stretch</value>
+				<_name>Stretch</_name>
+			</desc>
+		</option>
+	</object>
+</wayfire>
