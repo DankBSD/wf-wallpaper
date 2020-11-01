@@ -15,6 +15,8 @@
 #include <sys/types.h>
 
 #include <cassert>
+#include <locale>
+#include <map>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -316,6 +318,11 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 	std::shared_ptr<loadable_t> from, to;
 	wf::signal_connection_t do_damage{[this](wf::signal_data_t *) { damage(); }};
 
+	void set_color(wf::color_t col) {
+		_color = col;  // inherited field
+		if (!(from && from->renderable) && !(to && to->renderable)) damage();
+	}
+
 	void set_from(std::shared_ptr<loadable_t> from_) {
 		if (from && !from->renderable) from->disconnect_signal(&do_damage);
 		from = from_;
@@ -338,6 +345,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		for (auto &box : damage) {
 			LOGD("Damage ", box.x1, ",", box.y1, " - ", box.x2, ",", box.y2);
 			fb.logic_scissor(wlr_box_from_pixman_box(box));
+			// TODO: show color for transparent images too
 			if (!(from && from->renderable) && !(to && to->renderable)) {
 				wf::color_t premultiply{_color.r * _color.a, _color.g * _color.a, _color.b * _color.a,
 				                        _color.a};
@@ -347,9 +355,66 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 			if (from && from->renderable) /*(wps->fade_animation.running() && from && from->tex !=
 			                                 (uint32_t) -1)*/
 				render_renderable(*from->renderable, mode, fb, 1.0);
-			if (to && to->renderable) render_renderable(*to->renderable, mode, fb, 0.5);
+			if (to && to->renderable) render_renderable(*to->renderable, mode, fb, 1.0);
 		}
 		OpenGL::render_end();
+	}
+};
+
+struct wallpaper_config : public noncopyable_t {
+	inline static const std::string wildcard = "*";
+	wf::option_wrapper_t<std::string> path, outputs, workspaces;
+	wf::option_wrapper_t<wf::color_t> color;
+	std::vector<nonstd::observer_ptr<wallpaper_view_t>> views;
+	std::shared_ptr<loadable_t> loadable;
+
+	wallpaper_config(std::string &secname) {
+		outputs.load_option(secname + "/outputs");
+		workspaces.load_option(secname + "/workspaces");
+
+		path.load_option(secname + "/path");
+		loadable = wf::get_core().get_data<loadable_cache_t>()->load_file(path);
+		path.set_callback([this]() {
+			loadable = wf::get_core().get_data<loadable_cache_t>()->load_file(path);
+			for (auto view : views) view->set_to(loadable);
+		});
+
+		color.load_option(secname + "/color");
+		color.set_callback([this]() {
+			for (auto view : views) view->set_color(color);
+		});
+	}
+
+	uint32_t workspace_specificity() const { return (std::string)workspaces == wildcard ? 0 : 1; }
+
+	void reset_views() { views.clear(); }
+
+	bool match_add_view(int idx, nonstd::observer_ptr<wallpaper_view_t> ptr) {
+		bool matches = (std::string)workspaces == wildcard;
+		if (!matches) {
+			std::stringstream ss(workspaces);
+			for (int i; ss >> i;) {
+				if (i == idx) {
+					matches = true;
+					break;
+				}
+				if (ss.peek() == ',' || std::isspace((char)ss.peek(), std::locale::classic())) ss.ignore();
+			}
+		}
+		if (matches) {
+			views.push_back(ptr);
+			ptr->set_to(loadable);
+			ptr->set_color(color);
+		}
+		LOGI((std::string)path, " matching ", idx, " - ", matches);
+		return matches;
+	}
+};
+
+struct cmp_specificity {
+	bool operator()(const nonstd::observer_ptr<wallpaper_config> &a,
+	                const nonstd::observer_ptr<wallpaper_config> &b) const {
+		return a->workspace_specificity() > b->workspace_specificity();
 	}
 };
 
@@ -357,6 +422,48 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 	// wf::animation::simple_animation_t fade_animation{100};
 
 	std::vector<nonstd::observer_ptr<wallpaper_view_t>> ws_views;
+	std::map<std::string, wallpaper_config> confs;
+	std::vector<nonstd::observer_ptr<wallpaper_config>> confs_order;
+
+	void load_config() {
+		confs_order.clear();
+		auto &config = wf::get_core().config;
+		for (auto &sec : config.get_all_sections()) {
+			auto secname = sec->get_name();
+			size_t splitter = secname.find_first_of(":");
+			if (splitter == std::string::npos) {
+				continue;
+			}
+			auto obj_type_name = secname.substr(0, splitter);
+			if (obj_type_name != "wallpaper") {
+				continue;
+			}
+			// auto key = secname.substr(splitter + 1);
+			confs.try_emplace(secname, secname);
+		}
+		for (auto it = confs.begin(); it != confs.end();) {  // note how this pass does 3 things
+			if (config.get_section(it->first) == nullptr) {
+				it = confs.erase(it);
+			} else {
+				nonstd::observer_ptr<wallpaper_config> p{&it->second};
+				auto oit = std::lower_bound(confs_order.begin(), confs_order.end(), p, cmp_specificity{});
+				confs_order.insert(oit, p);
+				it->second.reset_views();
+				it++;
+			}
+		}
+		int idx = 0;
+		for (auto view : ws_views) {
+			for (auto conf : confs_order) {
+				if (conf->match_add_view(idx, view)) {
+					break;
+				}
+			}
+			idx++;
+		}
+	}
+
+	wf::signal_connection_t reload_config{[this](wf::signal_data_t *sigdata) { load_config(); }};
 
 	wf::signal_connection_t workspace_changed{[this](wf::signal_data_t *sigdata) {
 		// Do what workspace impl's set_workspace does for fixed_views
@@ -404,13 +511,6 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 		for (int x = 0; x < grid.width; x++) {
 			for (int y = 0; y < grid.height; y++) {
 				auto view = std::make_unique<wallpaper_view_t>();
-				auto ld = wf::get_core().get_data<loadable_cache_t>()->load_file(
-				    "/usr/local/share/backgrounds/gnome/adwaita-day.jpg");
-				auto ld2 = wf::get_core().get_data<loadable_cache_t>()->load_file(
-				    "/home/greg/src/github.com/DankBSD/wf-wallpaper/test_shadertoy.glsl");
-				view->set_from(std::move(ld));
-				view->set_to(std::move(ld2));
-
 				view->set_output(output);
 				view->set_geometry({x * og.width, y * og.height, og.width, og.height});
 				view->role = wf::VIEW_ROLE_DESKTOP_ENVIRONMENT;
@@ -422,6 +522,8 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 
 		output->connect_signal("output-configuration-changed", &output_configuration_changed);
 		output->connect_signal("workspace-changed", &workspace_changed);
+		wf::get_core().connect_signal("reload-config", &reload_config);
+		load_config();
 	}
 
 	void fini() override {
