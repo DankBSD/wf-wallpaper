@@ -536,6 +536,8 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 			}
 		}
 		output->render->damage_whole();
+		confs.clear();
+		// NOTE: fini != destructor -- MUST erase everything that uses cache (references loadables) here
 		wf::get_core().erase_data<loadable_cache_t>();
 	}
 };
