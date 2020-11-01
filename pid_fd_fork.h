@@ -5,6 +5,10 @@
 // Avoid relying on exit code.
 #pragma once
 
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
+
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -57,12 +61,11 @@ static inline int pid_fork_exit_code(pid_fork_t *pf, int *code) {
 
 #elif defined(__linux__)
 
-#define _GNU_SOURCE
 #include <sys/syscall.h>
 #include <linux/sched.h>
 
 #ifndef CLONE_PIDFD
-#error "Linux too old, at least 5.2 required"
+#error "Linux (or uapi headers specifically) too old, at least 5.2 required"
 #endif
 
 #ifndef P_PIDFD
