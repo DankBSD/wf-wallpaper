@@ -320,12 +320,14 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		if (from && !from->renderable) from->disconnect_signal(&do_damage);
 		from = from_;
 		if (from && !from->renderable) from->connect_signal("loaded", &do_damage);
+		if (from && from->renderable) damage();
 	}
 
 	void set_to(std::shared_ptr<loadable_t> to_) {
 		if (to && !to->renderable) to->disconnect_signal(&do_damage);
 		to = to_;
 		if (to && !to->renderable) to->connect_signal("loaded", &do_damage);
+		if (to && to->renderable) damage();
 	}
 
 	void simple_render(const wf::framebuffer_t &fb, int x, int y,
