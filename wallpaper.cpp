@@ -320,21 +320,21 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 
 	void set_color(wf::color_t col) {
 		_color = col;  // inherited field
-		if (!(from && from->renderable) && !(to && to->renderable)) damage();
+		damage();
 	}
 
 	void set_from(std::shared_ptr<loadable_t> from_) {
 		if (from && !from->renderable) from->disconnect_signal(&do_damage);
 		from = from_;
 		if (from && !from->renderable) from->connect_signal("loaded", &do_damage);
-		if (from && from->renderable) damage();
+		damage();
 	}
 
 	void set_to(std::shared_ptr<loadable_t> to_) {
 		if (to && !to->renderable) to->disconnect_signal(&do_damage);
 		to = to_;
 		if (to && !to->renderable) to->connect_signal("loaded", &do_damage);
-		if (to && to->renderable) damage();
+		damage();
 	}
 
 	void simple_render(const wf::framebuffer_t &fb, int x, int y,
