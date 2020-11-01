@@ -162,8 +162,10 @@ static std::shared_ptr<renderable_t> load_renderable(shm_header *hdr, size_t len
 		GL_CALL(glBindTexture(GL_TEXTURE_2D, tex.tex));
 		GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
 		GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-		if (hdr->rowstride % 3 != 0) LOGE("Row stride ", hdr->rowstride, " not a multiple of 3!");
-		GL_CALL(glPixelStorei(GL_UNPACK_ROW_LENGTH, hdr->rowstride / 3));
+		auto channels = (hdr->fmt == loaded_fmt::texture_r8g8b8) ? 3 : 4;
+		if (hdr->rowstride % channels != 0)
+			LOGE("Row stride ", hdr->rowstride, " not a multiple of ", channels);
+		GL_CALL(glPixelStorei(GL_UNPACK_ROW_LENGTH, hdr->rowstride / channels));
 		auto storage_fmt = (hdr->fmt == loaded_fmt::texture_r8g8b8) ? GL_RGB8 : GL_RGBA8;
 		GL_CALL(glTexStorage2D(GL_TEXTURE_2D, 1, storage_fmt, hdr->width, hdr->height));
 		auto tex_fmt = (hdr->fmt == loaded_fmt::texture_r8g8b8) ? GL_RGB : GL_RGBA;
