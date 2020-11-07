@@ -473,11 +473,9 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 		auto dx = (data->old_viewport.x - data->new_viewport.x) * screen.width;
 		auto dy = (data->old_viewport.y - data->new_viewport.y) * screen.height;
 		auto grid = output->workspace->get_workspace_grid_size();
-		for (int x = 0; x < grid.width; x++) {
-			for (int y = 0; y < grid.height; y++) {
-				auto vg = ws_views[x + grid.width * y]->get_wm_geometry();
-				ws_views[x + grid.width * y]->move(vg.x + dx, vg.y + dy);
-			}
+		for (auto view : ws_views) {
+			auto vg = view->get_wm_geometry();
+			view->move(vg.x + dx, vg.y + dy);
 		}
 	}};
 
@@ -485,7 +483,8 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 		wf::output_configuration_changed_signal *data =
 		    static_cast<wf::output_configuration_changed_signal *>(sigdata);
 
-		if (!data->changed_fields || (data->changed_fields & wf::OUTPUT_SOURCE_CHANGE)) {
+		if (!data->changed_fields || (data->changed_fields & wf::OUTPUT_SOURCE_CHANGE) ||
+		    ws_views.empty()) {
 			return;
 		}
 
@@ -499,6 +498,8 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 			}
 		}
 	}};
+
+	wf::signal_connection_t pre_remove{[this](wf::signal_data_t *data) { fini(); }};
 
 	void init() override {
 		wf::get_core().store_data<loadable_cache_t>(std::make_unique<loadable_cache_t>());
@@ -522,19 +523,19 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 
 		output->connect_signal("output-configuration-changed", &output_configuration_changed);
 		output->connect_signal("workspace-changed", &workspace_changed);
+		output->connect_signal("pre-remove", &pre_remove);
 		wf::get_core().connect_signal("reload-config", &reload_config);
 		load_config();
 	}
 
 	void fini() override {
-		auto grid = output->workspace->get_workspace_grid_size();
-		for (size_t x = 0; x < grid.width; x++) {
-			for (size_t y = 0; y < grid.height; y++) {
-				ws_views[x + grid.width * y]->from.reset();
-				ws_views[x + grid.width * y]->to.reset();
-				ws_views[x + grid.width * y]->close();
-			}
+		// NOTE: used on pre-remove
+		for (auto view : ws_views) {
+			view->from.reset();
+			view->to.reset();
+			view->close();
 		}
+		ws_views.clear();
 		output->render->damage_whole();
 		confs.clear();
 		// NOTE: fini != destructor -- MUST erase everything that uses cache (references loadables) here
