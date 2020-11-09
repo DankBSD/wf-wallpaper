@@ -124,7 +124,7 @@ static pid_fork_t start_file_loader(std::string path, int *shm_fd) {
 		assert(munmap(bytes, shm_len) == 0);
 		_Exit(0);
 	}
-	auto *pixb = gdk_pixbuf_new_from_file(path.c_str(), NULL);
+	g_autoptr(GdkPixbuf) pixb = gdk_pixbuf_new_from_file(path.c_str(), NULL);
 	assert(pixb != nullptr);
 	size_t shm_len = sizeof(shm_header) + gdk_pixbuf_get_byte_length(pixb);
 	assert(ftruncate(shm, shm_len) == 0);
@@ -139,7 +139,6 @@ static pid_fork_t start_file_loader(std::string path, int *shm_fd) {
 	hdr->rowstride = gdk_pixbuf_get_rowstride(pixb);
 	hdr->len = gdk_pixbuf_get_byte_length(pixb);
 	memcpy(bytes + sizeof(shm_header), gdk_pixbuf_read_pixels(pixb), hdr->len);
-	g_object_unref(pixb);
 	assert(munmap(bytes, shm_len) == 0);
 	_Exit(0); /* do not run any inherited atexit handlers (GPU drivers in particular crash) */
 }
