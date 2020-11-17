@@ -4,8 +4,8 @@
 #include <wayfire/nonstd/wlroots-full.hpp>
 #include <wayfire/opengl.hpp>
 #include <wayfire/output.hpp>
-#include <wayfire/plugin.hpp>
 #include <wayfire/render-manager.hpp>
+#include <wayfire/singleton-plugin.hpp>
 #include <wayfire/util/duration.hpp>
 // #include <wayfire/output-layout.hpp>
 // #include <wayfire/workspace-stream.hpp>
@@ -310,7 +310,9 @@ struct loadable_t : public noncopyable_t, public wf::signal_provider_t {
 
 	~loadable_t() {
 		LOGD("Unloading wallpaper ", path);
-		wf::get_core().get_data<loadable_cache_t>()->storage.erase(path);
+		wf::get_core()
+		    .get_data_safe<wf::detail::singleton_data_t<loadable_cache_t>>()
+		    ->ptr.storage.erase(path);
 	}
 };
 
@@ -373,9 +375,13 @@ struct wallpaper_config : public noncopyable_t {
 		workspaces.load_option(secname + "/workspaces");
 
 		path.load_option(secname + "/path");
-		loadable = wf::get_core().get_data<loadable_cache_t>()->load_file(path);
+		loadable = wf::get_core()
+		               .get_data_safe<wf::detail::singleton_data_t<loadable_cache_t>>()
+		               ->ptr.load_file(path);
 		path.set_callback([this]() {
-			loadable = wf::get_core().get_data<loadable_cache_t>()->load_file(path);
+			loadable = wf::get_core()
+			               .get_data_safe<wf::detail::singleton_data_t<loadable_cache_t>>()
+			               ->ptr.load_file(path);
 			for (auto view : views) view->set_to(loadable);
 		});
 
@@ -418,7 +424,7 @@ struct cmp_specificity {
 	}
 };
 
-struct wayfire_wallpaper : public wf::plugin_interface_t {
+struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 	// wf::animation::simple_animation_t fade_animation{100};
 
 	std::vector<nonstd::observer_ptr<wallpaper_view_t>> ws_views;
@@ -502,10 +508,11 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 	wf::signal_connection_t pre_remove{[this](wf::signal_data_t *data) { fini(); }};
 
 	void init() override {
+		singleton_plugin_t::init();
+
 		// add_view trips assertion on noop. not like we need to waste resources on noop anyway
 		if (wlr_output_is_noop(output->handle)) return;
 
-		wf::get_core().store_data<loadable_cache_t>(std::make_unique<loadable_cache_t>());
 		grab_interface->name = "wallpaper";
 		grab_interface->capabilities = 0;
 
@@ -542,7 +549,7 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 		output->render->damage_whole();
 		confs.clear();
 		// NOTE: fini != destructor -- MUST erase everything that uses cache (references loadables) here
-		wf::get_core().erase_data<loadable_cache_t>();
+		singleton_plugin_t::fini();
 	}
 };
 
