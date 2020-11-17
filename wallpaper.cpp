@@ -1,6 +1,7 @@
 #define WAYFIRE_PLUGIN
 #define WLR_USE_UNSTABLE
 #include <wayfire/compositor-view.hpp>
+#include <wayfire/nonstd/wlroots-full.hpp>
 #include <wayfire/opengl.hpp>
 #include <wayfire/output.hpp>
 #include <wayfire/plugin.hpp>
@@ -501,6 +502,9 @@ struct wayfire_wallpaper : public wf::plugin_interface_t {
 	wf::signal_connection_t pre_remove{[this](wf::signal_data_t *data) { fini(); }};
 
 	void init() override {
+		// add_view trips assertion on noop. not like we need to waste resources on noop anyway
+		if (wlr_output_is_noop(output->handle)) return;
+
 		wf::get_core().store_data<loadable_cache_t>(std::make_unique<loadable_cache_t>());
 		grab_interface->name = "wallpaper";
 		grab_interface->capabilities = 0;
