@@ -505,7 +505,7 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 		}
 	}};
 
-	wf::signal_connection_t pre_remove{[this](wf::signal_data_t *data) { fini(); }};
+	wf::signal_connection_t pre_remove{[this](wf::signal_data_t *data) { clear(); }};
 
 	void init() override {
 		singleton_plugin_t::init();
@@ -538,7 +538,7 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 		load_config();
 	}
 
-	void fini() override {
+	void clear() {
 		// NOTE: used on pre-remove
 		for (auto view : ws_views) {
 			view->from.reset();
@@ -548,6 +548,10 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 		ws_views.clear();
 		output->render->damage_whole();
 		confs.clear();
+	}
+
+	void fini() override {
+		clear();
 		// NOTE: fini != destructor -- MUST erase everything that uses cache (references loadables) here
 		singleton_plugin_t::fini();
 	}
