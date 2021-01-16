@@ -30,6 +30,7 @@
 #include <wayfire/util/log.hpp>
 #include <wayfire/workspace-manager.hpp>
 
+#include "clocks.hpp"
 #include "pid_fd_fork.h"
 
 enum class sizing { fill, fit, stretch };
@@ -148,6 +149,7 @@ static pid_fork_t start_file_loader(std::string path, int *shm_fd) {
 
 struct shader_t : public OpenGL::program_t {
 	~shader_t() { free_resources(); }
+	bool uses_time, uses_time_delta, uses_date, uses_frame;
 };
 
 using renderable_t = std::variant<wf::simple_texture_t, shader_t>;
@@ -219,6 +221,10 @@ void main() {
 		std::string fs_body((const char *)(bytes + sizeof(shm_header)), len - sizeof(shm_header));
 		rdr = std::make_shared<renderable_t>(std::in_place_type<shader_t>);
 		auto &prg = std::get<shader_t>(*rdr);
+		prg.uses_time = fs_body.find("iTime") != std::string::npos;
+		prg.uses_time_delta = fs_body.find("iTimeDelta") != std::string::npos;
+		prg.uses_date = fs_body.find("iDate") != std::string::npos;
+		prg.uses_frame = fs_body.find("iFrame") != std::string::npos;
 		prg.set_simple(OpenGL::compile_program(vertex_shader, fs_header + fs_body + fs_footer));
 	}
 	OpenGL::render_end();
@@ -295,31 +301,76 @@ struct loadable_t : public noncopyable_t, public wf::signal_provider_t {
 };
 
 struct wallpaper_view_t : public wf::color_rect_view_t {
+	wf::signal_connection_t something_loaded{[this](wf::signal_data_t *) { on_something_loaded(); }};
 	std::shared_ptr<loadable_t> from, to;
-	wf::signal_connection_t do_damage{[this](wf::signal_data_t *) { damage(); }};
+	fast_mono_clock::time_point from_start, to_start, current_frame_time, last_frame_time;
+	glm::vec4 current_frame_date;
+	std::chrono::duration<float /* seconds */> last_frame_delta;
 	int mouseX = 0, mouseY = 0, mousePreX = 0, mousePreY = 0, mouseClickX = 0, mouseClickY = 0;
+	int64_t from_frames = 0, to_frames = 0, total_frames = 0;
+	bool animate = false;
+	int frameskip = 1;
 
-	void set_color(wf::color_t col) {
+	void tick_animation() {
+		if (from && from->renderable) {
+			from_frames++;
+		}
+		if (to && to->renderable) {
+			to_frames++;
+		}
+		if ((++total_frames % frameskip) == 0) {
+			if (check_shaders([](auto &arg) { return arg.uses_time; })) {
+				current_frame_time = fast_mono_clock::now();
+			}
+			if (check_shaders([](auto &arg) { return arg.uses_time_delta; })) {
+				last_frame_delta = current_frame_time - last_frame_time;
+				last_frame_time = current_frame_time;
+			}
+			if (check_shaders([](auto &arg) { return arg.uses_date; })) {
+				struct tm date;
+				time_t date_tt = fast_wall_clock::to_time_t(fast_wall_clock::now());
+				localtime_r(&date_tt, &date);
+				current_frame_date = {date.tm_year + 1900, date.tm_mon /*0-11!*/, date.tm_mday,
+				                      date.tm_sec + date.tm_min * 60 + date.tm_hour * 3600};
+				// XXX: original shadertoy also added milliseconds, but time_t has rounded them
+			}
+			damage();
+		}
+	}
+
+	void on_something_loaded() {
+		damage();
+		animate = check_shaders([](auto &arg) {
+			return arg.uses_time || arg.uses_time_delta || arg.uses_date || arg.uses_frame;
+		});
+	}
+
+	void set_color(wf::color_t col) override {
 		_color = col;  // inherited field
 		damage();
 	}
 
 	void set_from(std::shared_ptr<loadable_t> from_) {
-		if (from && !from->renderable) from->disconnect_signal(&do_damage);
+		if (from && !from->renderable) from->disconnect_signal(&something_loaded);
 		from = from_;
-		if (from && !from->renderable) from->connect_signal("loaded", &do_damage);
-		damage();
+		from_start = fast_mono_clock::now();
+		from_frames = 0;
+		if (from && !from->renderable) from->connect_signal("loaded", &something_loaded);
+		on_something_loaded();
 	}
 
 	void set_to(std::shared_ptr<loadable_t> to_) {
-		if (to && !to->renderable) to->disconnect_signal(&do_damage);
+		if (to && !to->renderable) to->disconnect_signal(&something_loaded);
 		to = to_;
-		if (to && !to->renderable) to->connect_signal("loaded", &do_damage);
-		damage();
+		to_start = fast_mono_clock::now();
+		to_frames = 0;
+		if (to && !to->renderable) to->connect_signal("loaded", &something_loaded);
+		on_something_loaded();
 	}
 
 	void render_renderable(renderable_t &rbl, const sizing mode, const wf::framebuffer_t &fb,
-	                       const float blend) {
+	                       const float blend, fast_mono_clock::time_point &start_time,
+	                       int64_t frames) {
 		std::visit(
 		    [&](auto &&arg) {
 			    using T = std::decay_t<decltype(arg)>;
@@ -327,13 +378,24 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 				    OpenGL::render_texture(wf::texture_t{arg.tex}, fb, apply_mode(mode, fb.geometry, arg),
 				                           glm::vec4(1, 1, 1, blend), OpenGL::TEXTURE_TRANSFORM_INVERT_Y);
 			    } else if constexpr (std::is_same_v<T, shader_t>) {
+				    // NOTE: we mutate the actual renderable here, but that's fine,
+				    //       just have to make sure we don't leave any state to get mixed between
+				    //       invocations
 				    arg.use(wf::TEXTURE_TYPE_RGBA);
 				    static const float vertexData[] = {-1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f, -1.0f, 1.0f};
 				    arg.attrib_pointer("position", 2, 0, vertexData);
 				    arg.uniform1f("_wfwp_blend_", blend);
 				    arg.uniform3f("iResolution", fb.geometry.width, fb.geometry.height, 1.0);
 				    arg.uniform4f("iMouse", {mouseX, mouseY, mouseClickX, mouseClickY});
-				    // TODO: more shadertoy variables
+				    if (arg.uses_time) {
+					    std::chrono::duration<float /* seconds */> dur = current_frame_time - start_time;
+					    arg.uniform1f("iTime", dur.count());
+				    }
+				    if (arg.uses_time_delta) {
+					    arg.uniform1f("iTimeDelta", last_frame_delta.count());
+				    }
+				    arg.uniform1f("iFrame", frames);
+				    arg.uniform4f("iDate", current_frame_date);
 				    GL_CALL(glEnable(GL_BLEND));
 				    GL_CALL(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
 				    GL_CALL(glDrawArrays(GL_TRIANGLE_FAN, 0, 4));
@@ -341,6 +403,25 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 			    }
 		    },
 		    rbl);
+	}
+
+	template <typename F>
+	inline bool check_shader(renderable_t &rbl, F cb) {
+		return std::visit(
+		    [&](auto &&arg) {
+			    using T = std::decay_t<decltype(arg)>;
+			    if constexpr (std::is_same_v<T, shader_t>) {
+				    return cb(arg);
+			    }
+			    return false;
+		    },
+		    rbl);
+	}
+
+	template <typename F>
+	inline bool check_shaders(F cb) {
+		return (to && to->renderable && check_shader(*to->renderable, cb)) ||
+		       (from && from->renderable && check_shader(*from->renderable, cb));
 	}
 
 	void simple_render(const wf::framebuffer_t &fb, int x, int y,
@@ -360,8 +441,9 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 			}
 			if (from && from->renderable) /*(wps->fade_animation.running() && from && from->tex !=
 			                                 (uint32_t) -1)*/
-				render_renderable(*from->renderable, mode, fb, 1.0);
-			if (to && to->renderable) render_renderable(*to->renderable, mode, fb, 1.0);
+				render_renderable(*from->renderable, mode, fb, 1.0, from_start, from_frames);
+			if (to && to->renderable)
+				render_renderable(*to->renderable, mode, fb, 1.0, to_start, to_frames);
 		}
 		OpenGL::render_end();
 	}
@@ -415,6 +497,7 @@ struct wallpaper_config : public noncopyable_t {
 	inline static const std::string wildcard = "*";
 	wf::option_wrapper_t<std::string> path, outputs, workspaces;
 	wf::option_wrapper_t<wf::color_t> color;
+	wf::option_wrapper_t<int> frameskip;
 	std::vector<nonstd::observer_ptr<wallpaper_view_t>> views;
 	std::shared_ptr<loadable_t> loadable;
 
@@ -434,8 +517,15 @@ struct wallpaper_config : public noncopyable_t {
 		});
 
 		color.load_option(secname + "/color");
+		for (auto view : views) view->set_color(color);
 		color.set_callback([this]() {
 			for (auto view : views) view->set_color(color);
+		});
+
+		frameskip.load_option(secname + "/frameskip");
+		for (auto view : views) view->frameskip = frameskip;
+		frameskip.set_callback([this]() {
+			for (auto view : views) view->frameskip = frameskip;
 		});
 	}
 
@@ -553,6 +643,19 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 		}
 	}};
 
+	wf::effect_hook_t tick_animations = [=]() {
+		bool sr = false;
+		for (auto view : ws_views) {
+			if (view->animate) {
+				view->tick_animation();
+				sr = true;
+			}
+		}
+		if (sr) {
+			output->render->schedule_redraw();
+		}
+	};
+
 	wf::signal_connection_t pre_remove{[this](wf::signal_data_t *data) { clear(); }};
 
 	void init() override {
@@ -582,12 +685,14 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 		output->connect_signal("output-configuration-changed", &output_configuration_changed);
 		output->connect_signal("workspace-changed", &workspace_changed);
 		output->connect_signal("pre-remove", &pre_remove);
+		output->render->add_effect(&tick_animations, wf::OUTPUT_EFFECT_PRE);
 		wf::get_core().connect_signal("reload-config", &reload_config);
 		load_config();
 	}
 
 	void clear() {
 		// NOTE: used on pre-remove
+		output->render->rem_effect(&tick_animations);
 		for (auto view : ws_views) {
 			view->from.reset();
 			view->to.reset();

@@ -37,6 +37,12 @@
 			<min>60</min>
 			<max>960</max>
 		</option>
+		<option name="frameskip" type="int">
+			<_short>Shader Frame Skip</_short>
+			<_long>Only render animated (time-dependent) GLSL (Shadertoy) wallpapers every Nth frame</_long>
+			<default>1</default>
+			<min>1</min>
+		</option>
 		<option name="sizing_mode" type="string">
 			<_short>Sizing mode</_short>
 			<_long>How to match the image to the screen</_long>
