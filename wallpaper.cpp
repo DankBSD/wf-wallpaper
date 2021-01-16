@@ -310,6 +310,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 	int64_t from_frames = 0, to_frames = 0, total_frames = 0;
 	bool animate = false;
 	int frameskip = 1;
+	sizing mode = sizing::fill;
 
 	void tick_animation() {
 		if (from && from->renderable) {
@@ -350,6 +351,17 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		damage();
 	}
 
+	void set_sizing_mode(std::string m) {
+		if (m == "fit") {
+			mode = sizing::fit;
+		} else if (m == "stretch") {
+			mode = sizing::stretch;
+		} else {
+			mode = sizing::fill;
+		}
+		damage();
+	}
+
 	void set_from(std::shared_ptr<loadable_t> from_) {
 		if (from && !from->renderable) from->disconnect_signal(&something_loaded);
 		from = from_;
@@ -368,9 +380,8 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		on_something_loaded();
 	}
 
-	void render_renderable(renderable_t &rbl, const sizing mode, const wf::framebuffer_t &fb,
-	                       const float blend, fast_mono_clock::time_point &start_time,
-	                       int64_t frames) {
+	void render_renderable(renderable_t &rbl, const wf::framebuffer_t &fb, const float blend,
+	                       fast_mono_clock::time_point &start_time, int64_t frames) {
 		std::visit(
 		    [&](auto &&arg) {
 			    using T = std::decay_t<decltype(arg)>;
@@ -426,8 +437,6 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 
 	void simple_render(const wf::framebuffer_t &fb, int x, int y,
 	                   const wf::region_t &damage) override {
-		auto mode = sizing::fill;
-
 		OpenGL::render_begin(fb);
 		for (auto &box : damage) {
 			LOGD("Damage ", box.x1, ",", box.y1, " - ", box.x2, ",", box.y2);
@@ -441,9 +450,8 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 			}
 			if (from && from->renderable) /*(wps->fade_animation.running() && from && from->tex !=
 			                                 (uint32_t) -1)*/
-				render_renderable(*from->renderable, mode, fb, 1.0, from_start, from_frames);
-			if (to && to->renderable)
-				render_renderable(*to->renderable, mode, fb, 1.0, to_start, to_frames);
+				render_renderable(*from->renderable, fb, 1.0, from_start, from_frames);
+			if (to && to->renderable) render_renderable(*to->renderable, fb, 1.0, to_start, to_frames);
 		}
 		OpenGL::render_end();
 	}
@@ -495,7 +503,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 
 struct wallpaper_config : public noncopyable_t {
 	inline static const std::string wildcard = "*";
-	wf::option_wrapper_t<std::string> path, outputs, workspaces;
+	wf::option_wrapper_t<std::string> path, outputs, workspaces, sizing_mode;
 	wf::option_wrapper_t<wf::color_t> color;
 	wf::option_wrapper_t<int> frameskip;
 	std::vector<nonstd::observer_ptr<wallpaper_view_t>> views;
@@ -504,6 +512,7 @@ struct wallpaper_config : public noncopyable_t {
 	wallpaper_config(std::string &secname) {
 		outputs.load_option(secname + "/outputs");
 		workspaces.load_option(secname + "/workspaces");
+		sizing_mode.load_option(secname + "/sizing_mode");
 
 		path.load_option(secname + "/path");
 		loadable = wf::get_core()
@@ -514,6 +523,11 @@ struct wallpaper_config : public noncopyable_t {
 			               .get_data_safe<wf::detail::singleton_data_t<loadable_cache_t>>()
 			               ->ptr.load_file(path);
 			for (auto view : views) view->set_to(loadable);
+		});
+
+		for (auto view : views) view->set_sizing_mode(sizing_mode);
+		sizing_mode.set_callback([this]() {
+			for (auto view : views) view->set_sizing_mode(sizing_mode);
 		});
 
 		color.load_option(secname + "/color");
@@ -549,6 +563,8 @@ struct wallpaper_config : public noncopyable_t {
 			views.push_back(ptr);
 			ptr->set_to(loadable);
 			ptr->set_color(color);
+			ptr->set_sizing_mode(sizing_mode);
+			ptr->frameskip = frameskip;
 		}
 		LOGI((std::string)path, " matching ", idx, " - ", matches);
 		return matches;
