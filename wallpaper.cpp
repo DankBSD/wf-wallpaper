@@ -311,7 +311,8 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 	fast_mono_clock::time_point from_start, to_start, current_frame_time, last_frame_time;
 	glm::vec4 current_frame_date;
 	std::chrono::duration<float /* seconds */> last_frame_delta;
-	int mouseX = 0, mouseY = 0, mousePreX = 0, mousePreY = 0, mouseClickX = 0, mouseClickY = 0;
+	int mouse_x = 0, mouse_y = 0, mouse_pre_x = 0, mouse_pre_y = 0, mouse_click_x = 0,
+	    mouse_click_y = 0;
 	int64_t from_frames = 0, to_frames = 0, total_frames = 0;
 	bool animate = false;
 	int frameskip = 1;
@@ -402,7 +403,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 				    arg.attrib_pointer("position", 2, 0, vertexData);
 				    arg.uniform1f("_wfwp_blend_", blend);
 				    arg.uniform3f("iResolution", fb.geometry.width, fb.geometry.height, 1.0);
-				    arg.uniform4f("iMouse", {mouseX, mouseY, mouseClickX, mouseClickY});
+				    arg.uniform4f("iMouse", {mouse_x, mouse_y, mouse_click_x, mouse_click_y});
 				    if (arg.uses_time) {
 					    std::chrono::duration<float /* seconds */> dur = current_frame_time - start_time;
 					    arg.uniform1f("iTime", dur.count());
@@ -467,14 +468,14 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 	}
 
 	void on_pointer_motion(int x, int y) override {
-		if (mouseClickX == 0 && mouseClickY == 0) {
-			mousePreX = x;
-			mousePreY = y;
+		if (mouse_click_x == 0 && mouse_click_y == 0) {
+			mouse_pre_x = x;
+			mouse_pre_y = y;
 		} else {
-			mouseX = x;
-			mouseY = y;
+			mouse_x = x;
+			mouse_y = y;
 		}
-		if (mouseClickX != 0 && mouseClickY != 0) {
+		if (mouse_click_x != 0 && mouse_click_y != 0) {
 			damage();
 		}
 	}
@@ -483,27 +484,27 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 			return;
 		}
 		if (state == WLR_BUTTON_PRESSED) {
-			mouseClickX = mousePreX;
-			mouseClickY = mousePreY;
+			mouse_click_x = mouse_pre_x;
+			mouse_click_y = mouse_pre_y;
 		} else {
-			mouseClickX = 0;
-			mouseClickY = 0;
+			mouse_click_x = 0;
+			mouse_click_y = 0;
 			damage();
 		}
 	}
 
 	void on_touch_down(int x, int y) override {
-		mouseClickX = x;
-		mouseClickY = y;
+		mouse_click_x = x;
+		mouse_click_y = y;
 	}
 	void on_touch_up() override {
-		mouseClickX = 0;
-		mouseClickY = 0;
+		mouse_click_x = 0;
+		mouse_click_y = 0;
 		damage();
 	}
 	void on_touch_motion(int x, int y) override {
-		mouseX = x;
-		mouseY = y;
+		mouse_x = x;
+		mouse_y = y;
 	}
 };
 
