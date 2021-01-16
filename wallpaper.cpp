@@ -633,11 +633,12 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 		}
 
 		auto og = output->get_relative_geometry();
+		auto ws = output->workspace->get_current_workspace();
 		auto grid = output->workspace->get_workspace_grid_size();
 		for (int x = 0; x < grid.width; x++) {
 			for (int y = 0; y < grid.height; y++) {
 				ws_views[x + grid.width * y]->set_geometry(
-				    {x * og.width, y * og.height, og.width, og.height});
+				    {(x - ws.x) * og.width, (y - ws.y) * og.height, og.width, og.height});
 				ws_views[x + grid.width * y]->damage();
 			}
 		}
