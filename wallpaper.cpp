@@ -1,5 +1,7 @@
 #define WAYFIRE_PLUGIN
 #define WLR_USE_UNSTABLE
+#include <linux/input-event-codes.h>
+
 #include <wayfire/compositor-view.hpp>
 #include <wayfire/nonstd/wlroots-full.hpp>
 #include <wayfire/opengl.hpp>
@@ -223,30 +225,6 @@ void main() {
 	return rdr;
 }
 
-static void render_renderable(renderable_t &rbl, const sizing mode, const wf::framebuffer_t &fb,
-                              const float blend) {
-	std::visit(
-	    [&](auto &&arg) {
-		    using T = std::decay_t<decltype(arg)>;
-		    if constexpr (std::is_same_v<T, wf::simple_texture_t>) {
-			    OpenGL::render_texture(wf::texture_t{arg.tex}, fb, apply_mode(mode, fb.geometry, arg),
-			                           glm::vec4(1, 1, 1, blend), OpenGL::TEXTURE_TRANSFORM_INVERT_Y);
-		    } else if constexpr (std::is_same_v<T, shader_t>) {
-			    arg.use(wf::TEXTURE_TYPE_RGBA);
-			    static const float vertexData[] = {-1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f, -1.0f, 1.0f};
-			    arg.attrib_pointer("position", 2, 0, vertexData);
-			    arg.uniform1f("_wfwp_blend_", blend);
-			    arg.uniform3f("iResolution", fb.geometry.width, fb.geometry.height, 1.0);
-			    // TODO: more shadertoy variables
-			    GL_CALL(glEnable(GL_BLEND));
-			    GL_CALL(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
-			    GL_CALL(glDrawArrays(GL_TRIANGLE_FAN, 0, 4));
-			    arg.deactivate();
-		    }
-	    },
-	    rbl);
-}
-
 struct loadable_t;
 
 struct loadable_cache_t : public wf::custom_data_t {
@@ -319,6 +297,7 @@ struct loadable_t : public noncopyable_t, public wf::signal_provider_t {
 struct wallpaper_view_t : public wf::color_rect_view_t {
 	std::shared_ptr<loadable_t> from, to;
 	wf::signal_connection_t do_damage{[this](wf::signal_data_t *) { damage(); }};
+	int mouseX = 0, mouseY = 0, mousePreX = 0, mousePreY = 0, mouseClickX = 0, mouseClickY = 0;
 
 	void set_color(wf::color_t col) {
 		_color = col;  // inherited field
@@ -337,6 +316,31 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		to = to_;
 		if (to && !to->renderable) to->connect_signal("loaded", &do_damage);
 		damage();
+	}
+
+	void render_renderable(renderable_t &rbl, const sizing mode, const wf::framebuffer_t &fb,
+	                       const float blend) {
+		std::visit(
+		    [&](auto &&arg) {
+			    using T = std::decay_t<decltype(arg)>;
+			    if constexpr (std::is_same_v<T, wf::simple_texture_t>) {
+				    OpenGL::render_texture(wf::texture_t{arg.tex}, fb, apply_mode(mode, fb.geometry, arg),
+				                           glm::vec4(1, 1, 1, blend), OpenGL::TEXTURE_TRANSFORM_INVERT_Y);
+			    } else if constexpr (std::is_same_v<T, shader_t>) {
+				    arg.use(wf::TEXTURE_TYPE_RGBA);
+				    static const float vertexData[] = {-1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f, -1.0f, 1.0f};
+				    arg.attrib_pointer("position", 2, 0, vertexData);
+				    arg.uniform1f("_wfwp_blend_", blend);
+				    arg.uniform3f("iResolution", fb.geometry.width, fb.geometry.height, 1.0);
+				    arg.uniform4f("iMouse", {mouseX, mouseY, mouseClickX, mouseClickY});
+				    // TODO: more shadertoy variables
+				    GL_CALL(glEnable(GL_BLEND));
+				    GL_CALL(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
+				    GL_CALL(glDrawArrays(GL_TRIANGLE_FAN, 0, 4));
+				    arg.deactivate();
+			    }
+		    },
+		    rbl);
 	}
 
 	void simple_render(const wf::framebuffer_t &fb, int x, int y,
@@ -360,6 +364,50 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 			if (to && to->renderable) render_renderable(*to->renderable, mode, fb, 1.0);
 		}
 		OpenGL::render_end();
+	}
+
+	bool accepts_input(int32_t sx, int32_t sy) override {
+		return 0 <= sx && sx < geometry.width && 0 <= sy && sy < geometry.height;
+	}
+
+	void on_pointer_motion(int x, int y) override {
+		if (mouseClickX == 0 && mouseClickY == 0) {
+			mousePreX = x;
+			mousePreY = y;
+		} else {
+			mouseX = x;
+			mouseY = y;
+		}
+		if (mouseClickX != 0 && mouseClickY != 0) {
+			damage();
+		}
+	}
+	void on_pointer_button(uint32_t button, uint32_t state) override {
+		if (button != BTN_LEFT) {
+			return;
+		}
+		if (state == WLR_BUTTON_PRESSED) {
+			mouseClickX = mousePreX;
+			mouseClickY = mousePreY;
+		} else {
+			mouseClickX = 0;
+			mouseClickY = 0;
+			damage();
+		}
+	}
+
+	void on_touch_down(int x, int y) override {
+		mouseClickX = x;
+		mouseClickY = y;
+	}
+	void on_touch_up() override {
+		mouseClickX = 0;
+		mouseClickY = 0;
+		damage();
+	}
+	void on_touch_motion(int x, int y) override {
+		mouseX = x;
+		mouseY = y;
 	}
 };
 
