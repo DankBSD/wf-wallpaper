@@ -147,12 +147,16 @@ static pid_fork_t start_file_loader(std::string path, int *shm_fd) {
 	_Exit(0); /* do not run any inherited atexit handlers (GPU drivers in particular crash) */
 }
 
+struct picture_t : public wf::simple_texture_t {
+	bool has_alpha;
+};
+
 struct shader_t : public OpenGL::program_t {
 	~shader_t() { free_resources(); }
 	bool uses_time, uses_time_delta, uses_date, uses_frame;
 };
 
-using renderable_t = std::variant<wf::simple_texture_t, shader_t>;
+using renderable_t = std::variant<picture_t, shader_t>;
 
 static std::shared_ptr<renderable_t> load_renderable(shm_header *hdr, size_t len) {
 	const auto *bytes = reinterpret_cast<unsigned char *>(hdr);
@@ -160,8 +164,8 @@ static std::shared_ptr<renderable_t> load_renderable(shm_header *hdr, size_t len
 	OpenGL::render_begin();
 	if (hdr->fmt == loaded_fmt::texture_r8g8b8 || hdr->fmt == loaded_fmt::texture_r8g8b8a8) {
 		// TODO check rowstride*height does not exceed len
-		rdr = std::make_shared<renderable_t>(std::in_place_type<wf::simple_texture_t>);
-		auto &tex = std::get<wf::simple_texture_t>(*rdr);
+		rdr = std::make_shared<renderable_t>(std::in_place_type<picture_t>);
+		auto &tex = std::get<picture_t>(*rdr);
 		tex.width = hdr->width;
 		tex.height = hdr->height;
 		if (tex.tex == (GLuint)-1) GL_CALL(glGenTextures(1, &tex.tex));
@@ -175,6 +179,7 @@ static std::shared_ptr<renderable_t> load_renderable(shm_header *hdr, size_t len
 		auto storage_fmt = (hdr->fmt == loaded_fmt::texture_r8g8b8) ? GL_RGB8 : GL_RGBA8;
 		GL_CALL(glTexStorage2D(GL_TEXTURE_2D, 1, storage_fmt, hdr->width, hdr->height));
 		auto tex_fmt = (hdr->fmt == loaded_fmt::texture_r8g8b8) ? GL_RGB : GL_RGBA;
+		tex.has_alpha = tex_fmt == GL_RGBA;
 		GL_CALL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, hdr->width, hdr->height, tex_fmt,
 		                        GL_UNSIGNED_BYTE, (GLvoid *)(bytes + sizeof(shm_header))));
 		GL_CALL(glPixelStorei(GL_UNPACK_ROW_LENGTH, 0));
@@ -320,14 +325,14 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 			to_frames++;
 		}
 		if ((++total_frames % frameskip) == 0) {
-			if (check_shaders([](auto &arg) { return arg.uses_time; })) {
+			if (check<shader_t>([](auto &arg) { return arg.uses_time; })) {
 				current_frame_time = fast_mono_clock::now();
 			}
-			if (check_shaders([](auto &arg) { return arg.uses_time_delta; })) {
+			if (check<shader_t>([](auto &arg) { return arg.uses_time_delta; })) {
 				last_frame_delta = current_frame_time - last_frame_time;
 				last_frame_time = current_frame_time;
 			}
-			if (check_shaders([](auto &arg) { return arg.uses_date; })) {
+			if (check<shader_t>([](auto &arg) { return arg.uses_date; })) {
 				struct tm date;
 				time_t date_tt = fast_wall_clock::to_time_t(fast_wall_clock::now());
 				localtime_r(&date_tt, &date);
@@ -341,7 +346,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 
 	void on_something_loaded() {
 		damage();
-		animate = check_shaders([](auto &arg) {
+		animate = check<shader_t>([](auto &arg) {
 			return arg.uses_time || arg.uses_time_delta || arg.uses_date || arg.uses_frame;
 		});
 	}
@@ -385,7 +390,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		std::visit(
 		    [&](auto &&arg) {
 			    using T = std::decay_t<decltype(arg)>;
-			    if constexpr (std::is_same_v<T, wf::simple_texture_t>) {
+			    if constexpr (std::is_same_v<T, picture_t>) {
 				    OpenGL::render_texture(wf::texture_t{arg.tex}, fb, apply_mode(mode, fb.geometry, arg),
 				                           glm::vec4(1, 1, 1, blend), OpenGL::TEXTURE_TRANSFORM_INVERT_Y);
 			    } else if constexpr (std::is_same_v<T, shader_t>) {
@@ -416,12 +421,12 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		    rbl);
 	}
 
-	template <typename F>
-	inline bool check_shader(renderable_t &rbl, F cb) {
+	template <typename R, typename F>
+	inline bool check_renderable(renderable_t &rbl, F cb) {
 		return std::visit(
 		    [&](auto &&arg) {
 			    using T = std::decay_t<decltype(arg)>;
-			    if constexpr (std::is_same_v<T, shader_t>) {
+			    if constexpr (std::is_same_v<T, R>) {
 				    return cb(arg);
 			    }
 			    return false;
@@ -429,10 +434,10 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		    rbl);
 	}
 
-	template <typename F>
-	inline bool check_shaders(F cb) {
-		return (to && to->renderable && check_shader(*to->renderable, cb)) ||
-		       (from && from->renderable && check_shader(*from->renderable, cb));
+	template <typename R, typename F>
+	inline bool check(F cb) {
+		return (to && to->renderable && check_renderable<R>(*to->renderable, cb)) ||
+		       (from && from->renderable && check_renderable<R>(*from->renderable, cb));
 	}
 
 	void simple_render(const wf::framebuffer_t &fb, int x, int y,
@@ -441,8 +446,9 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		for (auto &box : damage) {
 			LOGD("Damage ", box.x1, ",", box.y1, " - ", box.x2, ",", box.y2);
 			fb.logic_scissor(wlr_box_from_pixman_box(box));
-			// TODO: show color for transparent images too
-			if (!(from && from->renderable) && !(to && to->renderable)) {
+			bool no_renderables = !(from && from->renderable) && !(to && to->renderable);
+			bool transparent_pics = check<picture_t>([](auto &arg) { return arg.has_alpha; });
+			if (no_renderables || transparent_pics || mode == sizing::fit) {
 				wf::color_t premultiply{_color.r * _color.a, _color.g * _color.a, _color.b * _color.a,
 				                        _color.a};
 				OpenGL::render_rectangle({x, y, fb.geometry.width, fb.geometry.width}, premultiply,
