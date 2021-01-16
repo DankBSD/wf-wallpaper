@@ -711,7 +711,9 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 	}
 
 	void fini() override {
-		clear();
+		if (!wlr_output_is_noop(output->handle)) {
+			clear();
+		}
 		// NOTE: fini != destructor -- MUST erase everything that uses cache (references loadables) here
 		singleton_plugin_t::fini();
 	}
