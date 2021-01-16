@@ -645,13 +645,19 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 
 	wf::effect_hook_t tick_animations = [=]() {
 		bool sr = false;
+		auto ws = output->workspace->get_current_workspace();
 		for (auto view : ws_views) {
 			if (view->animate) {
 				view->tick_animation();
-				sr = true;
+				if (view->frameskip != 1 && output->workspace->view_visible_on(view, ws)) {
+					sr = true;
+				}
 			}
 		}
 		if (sr) {
+			// We need this to make frameskip work.
+			// Otherwise, skip with nothing else on the workspace -> no damage on a frame
+			// -> effect hook does't fire next frame because there's no frame at all
 			output->render->schedule_redraw();
 		}
 	};
