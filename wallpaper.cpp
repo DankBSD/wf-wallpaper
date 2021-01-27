@@ -153,7 +153,7 @@ struct picture_t : public wf::simple_texture_t {
 
 struct shader_t : public OpenGL::program_t {
 	~shader_t() { free_resources(); }
-	bool uses_time, uses_time_delta, uses_date, uses_frame;
+	bool uses_time, uses_time_delta, uses_date, uses_frame, uses_mouse;
 };
 
 using renderable_t = std::variant<picture_t, shader_t>;
@@ -230,6 +230,7 @@ void main() {
 		prg.uses_time_delta = fs_body.find("iTimeDelta") != std::string::npos;
 		prg.uses_date = fs_body.find("iDate") != std::string::npos;
 		prg.uses_frame = fs_body.find("iFrame") != std::string::npos;
+		prg.uses_mouse = fs_body.find("iMouse") != std::string::npos;
 		prg.set_simple(OpenGL::compile_program(vertex_shader, fs_header + fs_body + fs_footer));
 	}
 	OpenGL::render_end();
@@ -315,6 +316,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 	    mouse_click_y = 0;
 	int64_t from_frames = 0, to_frames = 0, total_frames = 0;
 	bool animate = false;
+	bool mouse = false;
 	int frameskip = 1;
 	sizing mode = sizing::fill;
 
@@ -350,6 +352,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 		animate = check<shader_t>([](auto &arg) {
 			return arg.uses_time || arg.uses_time_delta || arg.uses_date || arg.uses_frame;
 		});
+		mouse = check<shader_t>([](auto &arg) { return arg.uses_mouse; });
 	}
 
 	void set_color(wf::color_t col) override {
@@ -465,7 +468,7 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 	}
 
 	bool accepts_input(int32_t sx, int32_t sy) override {
-		return 0 <= sx && sx < geometry.width && 0 <= sy && sy < geometry.height;
+		return mouse && 0 <= sx && sx < geometry.width && 0 <= sy && sy < geometry.height;
 	}
 
 	void on_pointer_motion(int x, int y) override {
