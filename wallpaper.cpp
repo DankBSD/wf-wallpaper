@@ -445,7 +445,8 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 	                   const wf::region_t &damage) override {
 		OpenGL::render_begin(fb);
 		for (auto &box : damage) {
-			LOGD("Damage ", box.x1, ",", box.y1, " - ", box.x2, ",", box.y2);
+			LOGD("Damage ", box.x1, ",", box.y1, " - ", box.x2, ",", box.y2, " == ", box.x2 - box.x1, "x",
+			     box.y2 - box.y1);
 			fb.logic_scissor(wlr_box_from_pixman_box(box));
 			bool no_renderables = !(from && from->renderable) && !(to && to->renderable);
 			bool transparent_pics = check<picture_t>([](auto &arg) { return arg.has_alpha; });
