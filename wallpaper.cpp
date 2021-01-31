@@ -671,6 +671,35 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 		}
 	}};
 
+	wf::signal_connection_t workspace_grid_changed{[this](wf::signal_data_t *sigdata) {
+		wf::workspace_grid_changed_signal *data =
+		    static_cast<wf::workspace_grid_changed_signal *>(sigdata);
+		for (auto &conf : confs) {
+			conf.second.reset_views();
+		}
+		auto old_count = data->old_grid_size.width * data->old_grid_size.height;
+		auto new_count = data->new_grid_size.width * data->new_grid_size.height;
+		for (int i = new_count; i < old_count; i++) {
+			ws_views[i]->from.reset();
+			ws_views[i]->to.reset();
+			ws_views[i]->close();
+		}
+		ws_views.resize(new_count);
+		for (int i = old_count; i < new_count; i++) {
+			ws_views[i] = new_view();
+		}
+		auto og = output->get_relative_geometry();
+		auto ws = output->workspace->get_current_workspace();
+		for (int x = 0; x < data->new_grid_size.width; x++) {
+			for (int y = 0; y < data->new_grid_size.height; y++) {
+				ws_views[x + data->new_grid_size.width * y]->set_geometry(
+				    {(x - ws.x) * og.width, (y - ws.y) * og.height, og.width, og.height});
+				ws_views[x + data->new_grid_size.width * y]->damage();
+			}
+		}
+		load_config();
+	}};
+
 	wf::effect_hook_t tick_animations = [=]() {
 		bool sr = false;
 		auto ws = output->workspace->get_current_workspace();
@@ -692,6 +721,16 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 
 	wf::signal_connection_t pre_remove{[this](wf::signal_data_t *data) { clear(); }};
 
+	nonstd::observer_ptr<wallpaper_view_t> new_view() {
+		auto view = std::make_unique<wallpaper_view_t>();
+		nonstd::observer_ptr<wallpaper_view_t> obs{view};
+		view->set_output(output);
+		view->role = wf::VIEW_ROLE_DESKTOP_ENVIRONMENT;
+		output->workspace->add_view(view, wf::LAYER_BACKGROUND);
+		wf::get_core().add_view(std::move(view));
+		return obs;
+	}
+
 	void init() override {
 		singleton_plugin_t::init();
 
@@ -706,16 +745,13 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 		ws_views.resize(grid.width * grid.height);
 		for (int x = 0; x < grid.width; x++) {
 			for (int y = 0; y < grid.height; y++) {
-				auto view = std::make_unique<wallpaper_view_t>();
-				view->set_output(output);
-				view->set_geometry({x * og.width, y * og.height, og.width, og.height});
-				view->role = wf::VIEW_ROLE_DESKTOP_ENVIRONMENT;
-				output->workspace->add_view(view, wf::LAYER_BACKGROUND);
-				ws_views[x + grid.width * y] = {view};
-				wf::get_core().add_view(std::move(view));
+				ws_views[x + grid.width * y] = new_view();
+				ws_views[x + grid.width * y]->set_geometry(
+				    {x * og.width, y * og.height, og.width, og.height});
 			}
 		}
 
+		output->connect_signal("workspace-grid-changed", &workspace_grid_changed);
 		output->connect_signal("output-configuration-changed", &output_configuration_changed);
 		output->connect_signal("workspace-changed", &workspace_changed);
 		output->connect_signal("pre-remove", &pre_remove);
