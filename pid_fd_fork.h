@@ -75,11 +75,10 @@ static inline int pid_fork_exit_code(pid_fork_t *pf, int *code) {
 
 // XXX: UNTESTED!
 static inline pid_t pid_fork_start(pid_fork_t *pf) {
-	struct clone_args args = {
-		.pidfd = (uint64_t)((uintptr_t)(&pf->proc_fd)),
-		.flags = CLONE_PIDFD,
-		.exit_signal = 0,
-	};
+	struct clone_args args = {0};
+	args.pidfd = (uint64_t)((uintptr_t)(&pf->proc_fd));
+	args.flags = CLONE_PIDFD;
+	args.exit_signal = 0;
 	pid_t pid = syscall(__NR_clone3, args, sizeof(struct clone_args));
 	pf->poll_fd = pf->proc_fd;
 	return pid;
@@ -92,7 +91,7 @@ static inline int pid_fork_signal(pid_fork_t *pf, int signum) {
 static inline int pid_fork_exit_code(pid_fork_t *pf, int *code) {
 	*code = 0;
 	siginfo_t info;
-	if (waitid(P_PIDFD, pf->proc_fd, &info, 0) != 0) {
+	if (waitid((idtype_t)P_PIDFD, pf->proc_fd, &info, 0) != 0) {
 		*code = info.si_status;
 	}
 	// Don't error because error might be Linux being too old
