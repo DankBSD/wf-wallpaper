@@ -63,6 +63,7 @@ static inline int pid_fork_exit_code(pid_fork_t *pf, int *code) {
 
 #include <sys/syscall.h>
 #include <linux/sched.h>
+#include <linux/wait.h>
 
 #ifndef CLONE_PIDFD
 #error "Linux (or uapi headers specifically) too old, at least 5.2 required"
