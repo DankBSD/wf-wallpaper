@@ -75,7 +75,8 @@ static inline int pid_fork_exit_code(pid_fork_t *pf, int *code) {
 
 // XXX: UNTESTED!
 static inline pid_t pid_fork_start(pid_fork_t *pf) {
-	struct clone_args args = {0};
+	struct clone_args args;
+	memset((void*)&args, 0, sizeof(args));
 	args.pidfd = (uint64_t)((uintptr_t)(&pf->proc_fd));
 	args.flags = CLONE_PIDFD;
 	args.exit_signal = 0;
