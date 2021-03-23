@@ -273,6 +273,7 @@ struct loadable_t : public noncopyable_t, public wf::signal_provider_t {
 	} while (false)
 		auto *self = reinterpret_cast<loadable_t *>(data);
 		wl_event_source_remove(self->fdsrc);
+		self->fdsrc = nullptr;
 		int code = -1;
 		if (pid_fork_exit_code(&self->loader_proc, &code) != 0 || code != 0) FAILFAIL;
 		struct stat sb;
@@ -299,7 +300,16 @@ struct loadable_t : public noncopyable_t, public wf::signal_provider_t {
 	}
 
 	~loadable_t() {
-		LOGD("Unloading wallpaper ", path);
+		if (fdsrc) {
+			LOGD("Canceling loading of wallpaper ", path);
+			wl_event_source_remove(fdsrc);
+			pid_fork_signal(&loader_proc, SIGTERM);
+			int code = -1;
+			pid_fork_exit_code(&loader_proc, &code);
+			LOGD("Canceled loading of wallpaper ", path, " - exit code ", code);
+		} else {
+			LOGD("Unloading wallpaper ", path);
+		}
 		wf::get_core()
 		    .get_data_safe<wf::detail::singleton_data_t<loadable_cache_t>>()
 		    ->ptr.storage.erase(path);
