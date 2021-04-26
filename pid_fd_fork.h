@@ -80,7 +80,7 @@ static inline pid_t pid_fork_start(pid_fork_t *pf) {
 	args.pidfd = (uint64_t)((uintptr_t)(&pf->proc_fd));
 	args.flags = CLONE_PIDFD;
 	args.exit_signal = 0;
-	pid_t pid = syscall(__NR_clone3, args, sizeof(struct clone_args));
+	pid_t pid = syscall(__NR_clone3, &args, sizeof(args));
 	pf->poll_fd = pf->proc_fd;
 	return pid;
 }
