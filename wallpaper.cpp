@@ -744,9 +744,6 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 	void init() override {
 		singleton_plugin_t::init();
 
-		// add_view trips assertion on noop. not like we need to waste resources on noop anyway
-		if (wlr_output_is_noop(output->handle)) return;
-
 		grab_interface->name = "wallpaper";
 		grab_interface->capabilities = 0;
 
@@ -784,9 +781,7 @@ struct wayfire_wallpaper : public wf::singleton_plugin_t<loadable_cache_t> {
 	}
 
 	void fini() override {
-		if (!wlr_output_is_noop(output->handle)) {
-			clear();
-		}
+		clear();
 		// NOTE: fini != destructor -- MUST erase everything that uses cache (references loadables) here
 		singleton_plugin_t::fini();
 	}
