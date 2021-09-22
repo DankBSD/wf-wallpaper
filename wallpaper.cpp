@@ -4,7 +4,6 @@
 
 #include <wayfire/compositor-view.hpp>
 #include <wayfire/nonstd/wlroots-full.hpp>
-#include <wayfire/nonstd/noncopyable.hpp>
 #include <wayfire/opengl.hpp>
 #include <wayfire/output.hpp>
 #include <wayfire/render-manager.hpp>
@@ -33,6 +32,7 @@
 
 #include "clocks.hpp"
 #include "pid_fd_fork.h"
+#include "noncopyable.hpp"
 
 enum class sizing { fill, fit, stretch };
 
