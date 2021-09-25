@@ -4,7 +4,6 @@
 
 #include <wayfire/compositor-view.hpp>
 #include <wayfire/nonstd/wlroots-full.hpp>
-#include <wayfire/nonstd/noncopyable.hpp>
 #include <wayfire/opengl.hpp>
 #include <wayfire/output.hpp>
 #include <wayfire/render-manager.hpp>
@@ -258,7 +257,7 @@ struct loadable_cache_t : public wf::custom_data_t {
 	}
 };
 
-struct loadable_t : public noncopyable_t, public wf::signal_provider_t {
+struct loadable_t : public wf::signal_provider_t {
 	std::shared_ptr<renderable_t> renderable;
 	std::string path;
 	pid_fork_t loader_proc = {-1, -1};
@@ -315,6 +314,11 @@ struct loadable_t : public noncopyable_t, public wf::signal_provider_t {
 		    .get_data_safe<wf::detail::singleton_data_t<loadable_cache_t>>()
 		    ->ptr.storage.erase(path);
 	}
+
+	loadable_t(const loadable_t &) = delete;
+	loadable_t(loadable_t &&) = delete;
+	loadable_t &operator=(const loadable_t &) = delete;
+	loadable_t &operator=(loadable_t &&) = delete;
 };
 
 struct wallpaper_view_t : public wf::color_rect_view_t {
@@ -523,13 +527,18 @@ struct wallpaper_view_t : public wf::color_rect_view_t {
 	}
 };
 
-struct wallpaper_config : public noncopyable_t {
+struct wallpaper_config {
 	inline static const std::string wildcard = "*";
 	wf::option_wrapper_t<std::string> path, outputs, workspaces, sizing_mode;
 	wf::option_wrapper_t<wf::color_t> color;
 	wf::option_wrapper_t<int> frameskip;
 	std::vector<nonstd::observer_ptr<wallpaper_view_t>> views;
 	std::shared_ptr<loadable_t> loadable;
+
+	wallpaper_config(const wallpaper_config &) = delete;
+	wallpaper_config(wallpaper_config &&) = delete;
+	wallpaper_config &operator=(const wallpaper_config &) = delete;
+	wallpaper_config &operator=(wallpaper_config &&) = delete;
 
 	wallpaper_config(std::string &secname) {
 		outputs.load_option(secname + "/outputs");
