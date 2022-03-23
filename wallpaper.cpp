@@ -177,10 +177,9 @@ static std::shared_ptr<renderable_t> load_renderable(shm_header *hdr, size_t len
 			LOGE("Row stride ", hdr->rowstride, " not a multiple of ", channels);
 		GL_CALL(glPixelStorei(GL_UNPACK_ROW_LENGTH, hdr->rowstride / channels));
 		auto storage_fmt = (hdr->fmt == loaded_fmt::texture_r8g8b8) ? GL_RGB8 : GL_RGBA8;
-		GL_CALL(glTexStorage2D(GL_TEXTURE_2D, 1, storage_fmt, hdr->width, hdr->height));
 		auto tex_fmt = (hdr->fmt == loaded_fmt::texture_r8g8b8) ? GL_RGB : GL_RGBA;
 		tex.has_alpha = tex_fmt == GL_RGBA;
-		GL_CALL(glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, hdr->width, hdr->height, tex_fmt,
+		GL_CALL(glTexImage2D(GL_TEXTURE_2D, 0, storage_fmt, hdr->width, hdr->height, 0, tex_fmt,
 		                        GL_UNSIGNED_BYTE, (GLvoid *)(bytes + sizeof(shm_header))));
 		GL_CALL(glPixelStorei(GL_UNPACK_ROW_LENGTH, 0));
 		GL_CALL(glBindTexture(GL_TEXTURE_2D, 0));
